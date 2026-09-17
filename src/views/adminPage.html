@@ -2104,59 +2104,124 @@ const lunarBiz = {
         updateNewExpiryPreview();
         document.getElementById('renewForm').addEventListener('submit', handleRenewFormSubmit);
         document.getElementById('renewPeriodMultiplier').addEventListener('input', updateNewExpiryPreview);
+		document.getElementById('renewPaymentDate').addEventListener('change', updateNewExpiryPreview);
     }
 
     function updateNewExpiryPreview() {
-        const form = document.getElementById('renewForm');
-        if (!form) return;
-
-        const subscription = JSON.parse(form.dataset.subscriptionData);
-        const multiplier = parseInt(document.getElementById('renewPeriodMultiplier').value) || 1;
-
-        // 获取基准日期，避免直接 new Date() 的时区问题
-        const parts = parseCalendarDateParts(formatDateInputInTimezone(subscription.expiryDate, globalTimezone)) || { year: 2024, month: 1, day: 1 };
-        
-        if (subscription.useLunar) {
-            try {
-                // 1. 转为农历对象
-                let lunar = lunarCalendar.solar2lunar(parts.year, parts.month, parts.day);
-                
-                if (lunar) {
-                    // 2. 循环添加周期
-                    let nextLunar = lunar;
-                    for(let i = 0; i < multiplier; i++) {
-                        nextLunar = lunarBiz.addLunarPeriod(nextLunar, subscription.periodValue, subscription.periodUnit);
-                    }
-                    
-                    // 3. 转回公历
-                    const solar = lunarBiz.lunar2solar(nextLunar);
-                    
-                    // 重点：用计算出的公历日期重新获取完整的农历对象，确保有 fullStr 属性
-                    const fullNextLunar = lunarCalendar.solar2lunar(solar.year, solar.month, solar.day);
-                    
-                    // 格式化输出 YYYY-MM-DD
-                    const resultStr = solar.year + '-' + 
-                                      String(solar.month).padStart(2, '0') + '-' + 
-                                      String(solar.day).padStart(2, '0');
-                                      
-                    document.getElementById('newExpiryPreview').textContent = resultStr + ' (农历: ' + fullNextLunar.fullStr + ')';
-                } else {
-                    document.getElementById('newExpiryPreview').textContent = '日期计算错误';
-                }
-            } catch (e) {
-                console.error(e);
-                document.getElementById('newExpiryPreview').textContent = '计算出错';
-            }
-        } else {
-            // 公历计算逻辑
-            const totalPeriodValue = subscription.periodValue * multiplier;
-            document.getElementById('newExpiryPreview').textContent = addCalendarPeriodToDateString(
-              `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`,
-              totalPeriodValue,
-              subscription.periodUnit
-            );
-        }
-    }
+	    const form = document.getElementById('renewForm');
+	    if (!form) return;
+	
+	    const subscription = JSON.parse(form.dataset.subscriptionData);
+	    const multiplier =
+	        parseInt(document.getElementById('renewPeriodMultiplier').value) || 1;
+	
+	    // 支付日期是续订计算的重要基准
+	    const paymentDateValue =
+	        document.getElementById('renewPaymentDate').value;
+	
+	    if (!paymentDateValue) {
+	        document.getElementById('newExpiryPreview').textContent = '请选择支付日期';
+	        return;
+	    }
+	
+	    // 当前到期日
+	    const expiryDateString = formatDateInputInTimezone(
+	        subscription.expiryDate,
+	        globalTimezone
+	    );
+	
+	    // 根据后端 manualRenewSubscription() 的规则确定续订起始日期
+	    //
+	    // reset：
+	    //   始终从支付日期重新计算
+	    //
+	    // cycle：
+	    //   如果当前到期日在支付日期之后，从当前到期日接续；
+	    //   否则从支付日期重新计算。
+	    const mode = subscription.subscriptionMode || 'cycle';
+	
+	    let baseDateString;
+	
+	    if (mode === 'reset') {
+	        baseDateString = paymentDateValue;
+	    } else {
+	        if (expiryDateString && expiryDateString > paymentDateValue) {
+	            baseDateString = expiryDateString;
+	        } else {
+	            baseDateString = paymentDateValue;
+	        }
+	    }
+	
+	    const parts = parseCalendarDateParts(baseDateString);
+	
+	    if (!parts) {
+	        document.getElementById('newExpiryPreview').textContent = '日期计算错误';
+	        return;
+	    }
+	
+	    if (subscription.useLunar) {
+	        try {
+	            // 1. 将基准公历日期转换为农历
+	            let lunar = lunarCalendar.solar2lunar(
+	                parts.year,
+	                parts.month,
+	                parts.day
+	            );
+	
+	            if (lunar) {
+	                // 2. 按续订周期逐次增加
+	                let nextLunar = lunar;
+	
+	                for (let i = 0; i < multiplier; i++) {
+	                    nextLunar = lunarBiz.addLunarPeriod(
+	                        nextLunar,
+	                        subscription.periodValue,
+	                        subscription.periodUnit
+	                    );
+	                }
+	
+	                // 3. 转回公历
+	                const solar = lunarBiz.lunar2solar(nextLunar);
+	
+	                // 重新获取完整农历对象
+	                const fullNextLunar = lunarCalendar.solar2lunar(
+	                    solar.year,
+	                    solar.month,
+	                    solar.day
+	                );
+	
+	                const resultStr =
+	                    solar.year + '-' +
+	                    String(solar.month).padStart(2, '0') + '-' +
+	                    String(solar.day).padStart(2, '0');
+	
+	                document.getElementById('newExpiryPreview').textContent =
+	                    resultStr +
+	                    (fullNextLunar
+	                        ? ' (农历: ' + fullNextLunar.fullStr + ')'
+	                        : '');
+	            } else {
+	                document.getElementById('newExpiryPreview').textContent =
+	                    '日期计算错误';
+	            }
+	        } catch (e) {
+	            console.error('续订日期计算失败:', e);
+	            document.getElementById('newExpiryPreview').textContent =
+	                '计算出错';
+	        }
+	    } else {
+	        // 公历计算
+	        const totalPeriodValue =
+	            subscription.periodValue * multiplier;
+	
+	        document.getElementById('newExpiryPreview').textContent =
+	            addCalendarPeriodToDateString(
+	                baseDateString,
+	                totalPeriodValue,
+	                subscription.periodUnit
+	            );
+	    }
+	}
 
     async function handleRenewFormSubmit(e) {
         e.preventDefault();
