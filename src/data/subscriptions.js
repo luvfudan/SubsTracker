@@ -161,7 +161,7 @@ async function createSubscription(subscription, env) {
     }
 
     let useLunar = !!subscription.useLunar;
-    if (useLunar && !subscription.preserveExplicitDates) {
+    if (useLunar) {
       const expiryParts = getTimezoneDateParts(expiryDate, timezone);
       let lunar = lunarCalendar.solar2lunar(
         expiryParts.year,
@@ -176,7 +176,7 @@ async function createSubscription(subscription, env) {
           expiryDate = buildTimezoneDate(solar.year, solar.month, solar.day, timezone);
         }
       }
-    } else if (!useLunar && !subscription.preserveExplicitDates) {
+    } else {
       if (getTimezoneMidnightTimestamp(expiryDate, timezone) < todayMidnight && subscription.periodValue && subscription.periodUnit) {
         while (getTimezoneMidnightTimestamp(expiryDate, timezone) < todayMidnight) {
           const endOfMonth = !!subscription.endOfMonth && !useLunar;
@@ -473,12 +473,15 @@ async function manualRenewSubscription(id, env, options = {}) {
     const currentExpiryDate = new Date(subscription.expiryDate);
 
     if (mode === 'reset') {
+      // 到期重置：从本次支付日期重新起算。
       newStartDate = new Date(paymentDate);
     } else {
-      newStartDate =
-        currentExpiryDate.getTime() > paymentDate.getTime()
-          ? new Date(currentExpiryDate)
-          : new Date(paymentDate);
+      // 循环订阅：始终从原来的到期日继续累加周期。
+      // 即使订阅已经过期，也不能把起点改成当前日期，否则会把历史到期日
+      // 直接跳到今天，导致续订后的日期整体向后偏移。
+      newStartDate = Number.isNaN(currentExpiryDate.getTime())
+        ? new Date(paymentDate)
+        : new Date(currentExpiryDate);
     }
 
     let newExpiryDate;

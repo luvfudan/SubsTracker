@@ -2104,6 +2104,7 @@ const lunarBiz = {
         updateNewExpiryPreview();
         document.getElementById('renewForm').addEventListener('submit', handleRenewFormSubmit);
         document.getElementById('renewPeriodMultiplier').addEventListener('input', updateNewExpiryPreview);
+        document.getElementById('renewPaymentDate').addEventListener('change', updateNewExpiryPreview);
     }
 
     function updateNewExpiryPreview() {
@@ -2113,8 +2114,12 @@ const lunarBiz = {
         const subscription = JSON.parse(form.dataset.subscriptionData);
         const multiplier = parseInt(document.getElementById('renewPeriodMultiplier').value) || 1;
 
-        // 获取基准日期，避免直接 new Date() 的时区问题
-        const parts = parseCalendarDateParts(formatDateInputInTimezone(subscription.expiryDate, globalTimezone)) || { year: 2024, month: 1, day: 1 };
+        // 预览必须与后端实际续订规则使用完全相同的起点：
+        // cycle：从原到期日继续累加；reset：从本次支付日期重新起算。
+        const baseDate = subscription.subscriptionMode === 'reset'
+          ? (document.getElementById('renewPaymentDate').value || getTodayDateStringInTimezone(globalTimezone))
+          : formatDateInputInTimezone(subscription.expiryDate, globalTimezone);
+        const parts = parseCalendarDateParts(baseDate) || { year: 2024, month: 1, day: 1 };
         
         if (subscription.useLunar) {
             try {
