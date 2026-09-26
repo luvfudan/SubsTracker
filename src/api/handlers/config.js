@@ -4,6 +4,7 @@ import { generateRandomSecret, sanitizeNotificationHours } from '../utils.js';
 // 这些字段可能包含 token/密钥，绝不下发到浏览器
 const SECRET_FIELDS = [
   'TG_BOT_TOKEN',
+  'TG_WEBHOOK_SECRET',
   'NOTIFYX_API_KEY',
   'WEBHOOK_URL',
   'WEBHOOK_HEADERS',
@@ -85,6 +86,7 @@ async function handleUpdateConfig(request, env) {
       TG_BOT_TOKEN: mergeSecretField(config, newConfig, 'TG_BOT_TOKEN', clearSecretFields),
       TG_CHAT_ID: newConfig.TG_CHAT_ID || '',
       TG_TOPIC_ID: (newConfig.TG_TOPIC_ID != null ? String(newConfig.TG_TOPIC_ID) : '').trim(),
+      TG_WEBHOOK_SECRET: mergeSecretField(config, newConfig, 'TG_WEBHOOK_SECRET', clearSecretFields),
 
       NOTIFYX_API_KEY: mergeSecretField(config, newConfig, 'NOTIFYX_API_KEY', clearSecretFields),
 

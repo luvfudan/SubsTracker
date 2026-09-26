@@ -6,6 +6,7 @@ const DEFAULT_CONFIG = {
   TG_BOT_TOKEN: '',
   TG_CHAT_ID: '',
   TG_TOPIC_ID: '',
+  TG_WEBHOOK_SECRET: '',
   NOTIFYX_API_KEY: '',
   WEBHOOK_URL: '',
   WEBHOOK_METHOD: 'POST',

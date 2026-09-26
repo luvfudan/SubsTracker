@@ -366,11 +366,17 @@
                 <p class="mt-1 text-xs text-gray-500">仅在开启 Topics 的群组中填写；留空则发送到普通会话/群组。</p>
               </div>
             </div>
-            <div class="flex justify-end">
+            <div class="flex flex-wrap justify-end gap-3">
+              <button type="button" id="setupTelegramWebhookBtn" class="btn-primary text-white px-4 py-2 rounded-md text-sm font-medium">
+                <i class="fas fa-robot mr-2"></i>启用 Telegram 机器人
+              </button>
               <button type="button" id="testTelegramBtn" class="btn-secondary text-white px-4 py-2 rounded-md text-sm font-medium">
                 <i class="fas fa-paper-plane mr-2"></i>测试 Telegram 通知
               </button>
             </div>
+            <p class="mt-2 text-xs text-gray-500">
+              保存 Bot Token 和 Chat ID 后点击「启用 Telegram 机器人」。启用后可在 TG 中直接添加、查询、续订、查看支付记录、统计等。
+            </p>
           </div>
           
           <div id="notifyxConfig" class="config-section">
@@ -1286,6 +1292,37 @@
     document.getElementById('testTelegramBtn').addEventListener('click', () => {
       testNotification('telegram');
     });
+
+    const setupTelegramWebhookBtn = document.getElementById('setupTelegramWebhookBtn');
+    if (setupTelegramWebhookBtn) {
+      setupTelegramWebhookBtn.addEventListener('click', async () => {
+        const original = setupTelegramWebhookBtn.innerHTML;
+        setupTelegramWebhookBtn.disabled = true;
+        setupTelegramWebhookBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>设置中...';
+        try {
+          // Webhook 使用服务器已保存的配置，因此先提醒用户保存当前配置。
+          const response = await fetch('/api/telegram/setup-webhook', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          let result = {};
+          try {
+            result = await response.json();
+          } catch (_) {}
+          if (response.ok && result.success) {
+            showToast('Telegram 机器人已启用，可以在 TG 中发送 /start', 'success', 5000);
+          } else {
+            showToast('Telegram 机器人启用失败: ' + (result.message || ('HTTP ' + response.status)), 'error', 5000);
+          }
+        } catch (error) {
+          console.error('设置 Telegram Webhook 失败:', error);
+          showToast('设置 Telegram 机器人失败，请检查网络', 'error');
+        } finally {
+          setupTelegramWebhookBtn.innerHTML = original;
+          setupTelegramWebhookBtn.disabled = false;
+        }
+      });
+    }
     
     document.getElementById('testNotifyXBtn').addEventListener('click', () => {
       testNotification('notifyx');

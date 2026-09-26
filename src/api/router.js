@@ -6,6 +6,7 @@ import { handleSubscriptions } from './handlers/subscriptions.js';
 import { getConfig } from '../data/config.js';
 import { handleTestNotification } from './handlers/test-notification.js';
 import { handleExtraRoutes } from "./handlers/extras.js";
+import { handleSetupWebhook } from './handlers/telegram-bot.js';
 
 async function handleApiRequest(request, env) {
   const url = new URL(request.url);
@@ -34,6 +35,10 @@ async function handleApiRequest(request, env) {
       JSON.stringify({ success: false, message: '未授权访问' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
+  }
+
+  if (path === '/telegram/setup-webhook' && method === 'POST') {
+    return handleSetupWebhook(request, env);
   }
 
   if (path === '/config') {
