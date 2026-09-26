@@ -251,7 +251,7 @@ async function showList(config, chatId, env, messageId = null) {
     return;
   }
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
-  const sorted = [...subs].sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+  const sorted = [...subs].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
   const lines = sorted.slice(0, 30).map((s) => {
     const expiry = formatTimeInTimezone(new Date(s.expiryDate), timezone, 'date');
     return `${s.isActive ? '🟢' : '⏸️'} ${s.name} · ${expiry} · ${statusText(s, timezone)}`;
@@ -274,7 +274,7 @@ async function showExpiring(config, chatId, env, messageId = null) {
       const d = daysRemaining(s.expiryDate, timezone);
       return d >= 0 && d <= 30;
     })
-    .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+    .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
 
   if (!expiring.length) {
     await editMessage(config, chatId, messageId, '🔔 未来 30 天没有即将到期的订阅。', mainMenu());
@@ -369,7 +369,7 @@ async function showPaymentHistory(config, chatId, env, id, messageId = null) {
     return;
   }
   const history = [...(sub.paymentHistory || [])]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 20);
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
   const text = [
