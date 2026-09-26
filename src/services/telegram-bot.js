@@ -515,7 +515,56 @@ async function beginRenew(config, chatId, env, id, messageId = null) {
       { text: '6周期', callback_data: `renewconfirm:${id}:6` },
       { text: '12周期', callback_data: `renewconfirm:${id}:12` }
     ],
+    [{ text: '🗓️ 自定义天数', callback_data: `renewcustom:${id}` }],
     [{ text: '❌ 取消', callback_data: 'cancel' }]
+  ]);
+}
+
+async function beginCustomRenew(config, chatId, env, id, messageId = null) {
+  const sub = await getSubscription(id, env);
+  if (!sub) {
+    await clearSession(env, chatId);
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
+    return;
+  }
+  await setSession(env, chatId, { action: 'renew', step: 'customDays', data: { id, promptMessageId: messageId } });
+  await editMessage(config, chatId, messageId, `🗓️ 自定义续订：${sub.name}
+
+请输入续订天数，例如：15、45、100
+请输入 1～3650 之间的正整数。`, [
+    [{ text: '❌ 取消', callback_data: 'cancel' }]
+  ]);
+}
+
+async function completeCustomRenew(config, chatId, env, id, days, messageId = null) {
+  const sub = await getSubscription(id, env);
+  if (!sub) {
+    await clearSession(env, chatId);
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
+    return;
+  }
+  const n = Number(days);
+  if (!Number.isInteger(n) || n < 1 || n > 3650) {
+    await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
+    return;
+  }
+  const result = await manualRenewSubscription(id, env, {
+    periodMultiplier: 1,
+    periodValue: n,
+    periodUnit: 'day',
+    amount: Number(sub.amount || 0),
+    note: `Telegram 自定义续订 ${n} 天`
+  });
+  await clearSession(env, chatId);
+  if (!result.success) {
+    await editMessage(config, chatId, messageId, `❌ 续订失败：${result.message || '未知错误'}`, mainMenu());
+    return;
+  }
+  await editMessage(config, chatId, messageId, `✅ 自定义续订成功（${n} 天）
+
+${subscriptionText(result.subscription, config)}`, [
+    [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }],
+    [{ text: '🏠 主菜单', callback_data: 'menu:home' }]
   ]);
 }
 
@@ -731,6 +780,16 @@ async function handleTelegramWebhook(request, env) {
     }
 
     const session = await getSession(env, chatId);
+    if (session?.action === 'renew' && session.step === 'customDays') {
+      const raw = text.trim();
+      if (!/^\d+$/.test(raw)) {
+        await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
+        return new Response('OK');
+      }
+      await completeCustomRenew(config, chatId, env, session.data.id, Number(raw), session.data.promptMessageId || null);
+      return new Response('OK');
+    }
+
     if (session?.action === 'add') {
       await handleAddMessage(config, chatId, env, session, text);
       return new Response('OK');
@@ -814,6 +873,9 @@ async function handleCallback(config, chatId, env, data, messageId = null) {
   if (data.startsWith('view:')) return showSubscription(config, chatId, env, data.slice(5), messageId);
   if (data.startsWith('payments:')) return showPaymentHistory(config, chatId, env, data.slice(9), messageId);
   if (data.startsWith('renew:')) return beginRenew(config, chatId, env, data.slice(6), messageId);
+  if (data.startsWith('renewcustom:')) {
+    return beginCustomRenew(config, chatId, env, data.slice(12), messageId);
+  }
   if (data.startsWith('renewconfirm:')) {
     const [, id, multiplier] = data.split(':');
     return completeRenew(config, chatId, env, id, Number(multiplier), messageId);

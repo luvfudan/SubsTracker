@@ -444,7 +444,7 @@ async function deleteSubscription(id, env) {
  *
  * @param {string} id
  * @param {any} env
- * @param {{ paymentDate?: string|Date, amount?: number, periodMultiplier?: number, note?: string }} options
+ * @param {{ paymentDate?: string|Date, amount?: number, periodMultiplier?: number, periodValue?: number, periodUnit?: string, note?: string }} options
  */
 async function manualRenewSubscription(id, env, options = {}) {
   try {
@@ -464,6 +464,8 @@ async function manualRenewSubscription(id, env, options = {}) {
       : now.utc;
     const amount = options.amount !== undefined ? options.amount : subscription.amount || 0;
     const periodMultiplier = options.periodMultiplier || 1;
+    const renewalPeriodValue = options.periodValue || subscription.periodValue;
+    const renewalPeriodUnit = options.periodUnit || subscription.periodUnit;
     const note = options.note || '手动续订';
     const mode = subscription.subscriptionMode || 'cycle';
 
@@ -485,16 +487,16 @@ async function manualRenewSubscription(id, env, options = {}) {
       let lunar = lunarCalendar.solar2lunar(solarStart.year, solarStart.month, solarStart.day);
       let nextLunar = lunar;
       for (let i = 0; i < periodMultiplier; i++) {
-        nextLunar = lunarBiz.addLunarPeriod(nextLunar, subscription.periodValue, subscription.periodUnit);
+        nextLunar = lunarBiz.addLunarPeriod(nextLunar, renewalPeriodValue, renewalPeriodUnit);
       }
       const solar = lunarBiz.lunar2solar(nextLunar);
       newExpiryDate = buildTimezoneDate(solar.year, solar.month, solar.day, timezone);
     } else {
-      const totalPeriodValue = subscription.periodValue * periodMultiplier;
+      const totalPeriodValue = renewalPeriodValue * periodMultiplier;
       newExpiryDate = addCalendarPeriodInTimezone(
         newStartDate,
         totalPeriodValue,
-        subscription.periodUnit,
+        renewalPeriodUnit,
         timezone,
         { endOfMonth: !!subscription.endOfMonth }
       );
