@@ -65,6 +65,27 @@ async function sendMessage(config, chatId, text, keyboard) {
   return telegramCall(config, 'sendMessage', body);
 }
 
+async function editMessage(config, chatId, messageId, text, keyboard) {
+  if (messageId == null) return sendMessage(config, chatId, text, keyboard);
+  const body = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    disable_web_page_preview: true
+  };
+  if (keyboard) {
+    body.reply_markup = { inline_keyboard: keyboard };
+  }
+  try {
+    return await telegramCall(config, 'editMessageText', body);
+  } catch (error) {
+    // Telegram 在内容完全相同时会返回 MESSAGE_NOT_MODIFIED。
+    // 这种情况下无需再发送一条重复消息。
+    if (String(error?.message || '').includes('message is not modified')) return null;
+    throw error;
+  }
+}
+
 async function answerCallback(config, callbackQueryId, text = '') {
   try {
     await telegramCall(config, 'answerCallbackQuery', {
@@ -211,10 +232,11 @@ function helpText() {
   ].join('\n');
 }
 
-async function showMain(config, chatId, greeting = true) {
-  await sendMessage(
+async function showMain(config, chatId, greeting = true, messageId = null) {
+  await editMessage(
     config,
     chatId,
+    messageId,
     greeting
       ? '📦 SubsTracker\n\n欢迎使用订阅管理助手。请选择操作：'
       : '请选择操作：',
@@ -222,27 +244,28 @@ async function showMain(config, chatId, greeting = true) {
   );
 }
 
-async function showList(config, chatId, env) {
+async function showList(config, chatId, env, messageId = null) {
   const subs = await getAllSubscriptions(env);
   if (!subs.length) {
-    await sendMessage(config, chatId, '📋 当前没有订阅。', mainMenu());
+    await editMessage(config, chatId, messageId, '📋 当前没有订阅。', mainMenu());
     return;
   }
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
-  const sorted = [...subs].sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+  const sorted = [...subs].sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
   const lines = sorted.slice(0, 30).map((s) => {
     const expiry = formatTimeInTimezone(new Date(s.expiryDate), timezone, 'date');
     return `${s.isActive ? '🟢' : '⏸️'} ${s.name} · ${expiry} · ${statusText(s, timezone)}`;
   });
-  await sendMessage(
+  await editMessage(
     config,
     chatId,
+    messageId,
     `📋 我的订阅（共 ${subs.length} 个）\n\n${lines.join('\n')}`,
     subButtons(sorted, 'view')
   );
 }
 
-async function showExpiring(config, chatId, env) {
+async function showExpiring(config, chatId, env, messageId = null) {
   const subs = await getAllSubscriptions(env);
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
   const expiring = subs
@@ -251,10 +274,10 @@ async function showExpiring(config, chatId, env) {
       const d = daysRemaining(s.expiryDate, timezone);
       return d >= 0 && d <= 30;
     })
-    .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
+    .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
 
   if (!expiring.length) {
-    await sendMessage(config, chatId, '🔔 未来 30 天没有即将到期的订阅。', mainMenu());
+    await editMessage(config, chatId, messageId, '🔔 未来 30 天没有即将到期的订阅。', mainMenu());
     return;
   }
 
@@ -267,10 +290,10 @@ async function showExpiring(config, chatId, env) {
     })
   ].join('\n');
 
-  await sendMessage(config, chatId, text, subButtons(expiring, 'view'));
+  await editMessage(config, chatId, messageId, text, subButtons(expiring, 'view'));
 }
 
-async function showStats(config, chatId, env) {
+async function showStats(config, chatId, env, messageId = null) {
   const subs = await getAllSubscriptions(env);
   const active = subs.filter((s) => s.isActive);
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
@@ -290,7 +313,7 @@ async function showStats(config, chatId, env) {
     .map(([currency, amount]) => `${formatAmount(amount, currency)}/周期`)
     .join('\n') || '暂无金额数据';
 
-  await sendMessage(config, chatId, [
+  await editMessage(config, chatId, messageId, [
     '📊 订阅统计',
     '',
     `全部订阅：${subs.length}`,
@@ -303,29 +326,30 @@ async function showStats(config, chatId, env) {
   ].join('\n'), mainMenu());
 }
 
-async function showPayments(config, chatId, env) {
+async function showPayments(config, chatId, env, messageId = null) {
   const subs = await getAllSubscriptions(env);
   const withPayments = subs.filter((s) => Array.isArray(s.paymentHistory) && s.paymentHistory.length);
   if (!withPayments.length) {
-    await sendMessage(config, chatId, '📜 暂无支付记录。', mainMenu());
+    await editMessage(config, chatId, messageId, '📜 暂无支付记录。', mainMenu());
     return;
   }
-  await sendMessage(
+  await editMessage(
     config,
     chatId,
+    messageId,
     '📜 请选择要查看支付记录的订阅：',
     subButtons(withPayments, 'payments')
   );
 }
 
-async function showSubscription(config, chatId, env, id) {
+async function showSubscription(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
-    await sendMessage(config, chatId, '❌ 订阅不存在，可能已经被删除。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在，可能已经被删除。', mainMenu());
     return;
   }
 
-  await sendMessage(config, chatId, subscriptionText(sub, config), [
+  await editMessage(config, chatId, messageId, subscriptionText(sub, config), [
     [
       { text: '🔄 续订', callback_data: `renew:${sub.id}` },
       { text: sub.isActive ? '⏸️ 停用' : '▶️ 启用', callback_data: `toggle:${sub.id}` }
@@ -338,14 +362,14 @@ async function showSubscription(config, chatId, env, id) {
   ]);
 }
 
-async function showPaymentHistory(config, chatId, env, id) {
+async function showPaymentHistory(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
-    await sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
     return;
   }
   const history = [...(sub.paymentHistory || [])]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 20);
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
   const text = [
@@ -358,15 +382,15 @@ async function showPaymentHistory(config, chatId, env, id) {
     })
   ].join('\n');
 
-  await sendMessage(config, chatId, text, [
+  await editMessage(config, chatId, messageId, text, [
     [{ text: '🔙 返回订阅', callback_data: `view:${sub.id}` }],
     [{ text: '🏠 主菜单', callback_data: 'menu:home' }]
   ]);
 }
 
-async function beginAdd(config, chatId, env) {
+async function beginAdd(config, chatId, env, messageId = null) {
   await setSession(env, chatId, { action: 'add', step: 'name', data: {} });
-  await sendMessage(config, chatId, '➕ 添加订阅\n\n请输入订阅名称，例如：Netflix', [
+  await editMessage(config, chatId, messageId, '➕ 添加订阅\n\n请输入订阅名称，例如：Netflix', [
     [{ text: '❌ 取消', callback_data: 'cancel' }]
   ]);
 }
@@ -430,10 +454,10 @@ async function handleAddMessage(config, chatId, env, session, text) {
   }
 }
 
-async function completeAdd(config, chatId, env, unit, value) {
+async function completeAdd(config, chatId, env, unit, value, messageId = null) {
   const session = await getSession(env, chatId);
   if (!session || session.action !== 'add') {
-    await sendMessage(config, chatId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
+    await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
     return;
   }
 
@@ -453,20 +477,20 @@ async function completeAdd(config, chatId, env, unit, value) {
   await clearSession(env, chatId);
 
   if (!result.success) {
-    await sendMessage(config, chatId, `❌ 添加失败：${result.message || '未知错误'}`, mainMenu());
+    await editMessage(config, chatId, messageId, `❌ 添加失败：${result.message || '未知错误'}`, mainMenu());
     return;
   }
 
-  await sendMessage(config, chatId, `✅ 添加成功\n\n${subscriptionText(result.subscription, config)}`, [
+  await editMessage(config, chatId, messageId, `✅ 添加成功\n\n${subscriptionText(result.subscription, config)}`, [
     [{ text: '🔄 立即续订', callback_data: `renew:${result.subscription.id}` }],
     [{ text: '🏠 主菜单', callback_data: 'menu:home' }]
   ]);
 }
 
-async function beginRenew(config, chatId, env, id) {
+async function beginRenew(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
-    await sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
     return;
   }
 
@@ -477,7 +501,7 @@ async function beginRenew(config, chatId, env, id) {
   });
 
   const amount = Number(sub.amount || 0);
-  await sendMessage(config, chatId, [
+  await editMessage(config, chatId, messageId, [
     `🔄 续订：${sub.name}`,
     '',
     `当前费用：${formatAmount(amount, sub.currency || 'CNY') || '未设置'}/周期`,
@@ -495,11 +519,11 @@ async function beginRenew(config, chatId, env, id) {
   ]);
 }
 
-async function completeRenew(config, chatId, env, id, multiplier) {
+async function completeRenew(config, chatId, env, id, multiplier, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
     await clearSession(env, chatId);
-    await sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
     return;
   }
 
@@ -514,44 +538,45 @@ async function completeRenew(config, chatId, env, id, multiplier) {
   await clearSession(env, chatId);
 
   if (!result.success) {
-    await sendMessage(config, chatId, `❌ 续订失败：${result.message || '未知错误'}`, mainMenu());
+    await editMessage(config, chatId, messageId, `❌ 续订失败：${result.message || '未知错误'}`, mainMenu());
     return;
   }
 
-  await sendMessage(config, chatId, `✅ 续订成功\n\n${subscriptionText(result.subscription, config)}`, [
+  await editMessage(config, chatId, messageId, `✅ 续订成功\n\n${subscriptionText(result.subscription, config)}`, [
     [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }],
     [{ text: '🏠 主菜单', callback_data: 'menu:home' }]
   ]);
 }
 
-async function deleteSubscriptionFromTelegram(config, chatId, env, id) {
+async function deleteSubscriptionFromTelegram(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
-    await sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
     return;
   }
   const result = await deleteSubscription(id, env);
   if (!result.success) {
-    await sendMessage(config, chatId, `❌ 删除失败：${result.message || '未知错误'}`, mainMenu());
+    await editMessage(config, chatId, messageId, `❌ 删除失败：${result.message || '未知错误'}`, mainMenu());
     return;
   }
-  await sendMessage(config, chatId, `🗑️ 已删除「${sub.name}」。`, mainMenu());
+  await editMessage(config, chatId, messageId, `🗑️ 已删除「${sub.name}」。`, mainMenu());
 }
 
-async function toggleSubscriptionFromTelegram(config, chatId, env, id) {
+async function toggleSubscriptionFromTelegram(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
-    await sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
+    await editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
     return;
   }
   const result = await toggleSubscriptionStatus(id, !sub.isActive, env);
   if (!result.success) {
-    await sendMessage(config, chatId, `❌ 操作失败：${result.message || '未知错误'}`, mainMenu());
+    await editMessage(config, chatId, messageId, `❌ 操作失败：${result.message || '未知错误'}`, mainMenu());
     return;
   }
-  await sendMessage(
+  await editMessage(
     config,
     chatId,
+    messageId,
     `${result.subscription.isActive ? '▶️ 已启用' : '⏸️ 已停用'}「${sub.name}」。`,
     [
       [{ text: '📦 查看订阅', callback_data: `view:${id}` }],
@@ -651,7 +676,7 @@ async function handleTelegramWebhook(request, env) {
 
     if (callback) {
       await answerCallback(config, callback.id);
-      await handleCallback(config, chatId, env, callback.data || '');
+      await handleCallback(config, chatId, env, callback.data || '', callback?.message?.message_id ?? null);
       return new Response('OK');
     }
 
@@ -755,70 +780,57 @@ async function handleTelegramWebhook(request, env) {
   }
 }
 
-async function handleCallback(config, chatId, env, data) {
+async function handleCallback(config, chatId, env, data, messageId = null) {
   if (data === 'cancel') {
     await clearSession(env, chatId);
-    await sendMessage(config, chatId, '✅ 已取消当前操作。', mainMenu());
-    return;
+    return editMessage(config, chatId, messageId, '✅ 已取消当前操作。', mainMenu());
   }
 
   if (data === 'menu:home') {
     await clearSession(env, chatId);
-    await showMain(config, chatId, false);
-    return;
+    return showMain(config, chatId, false, messageId);
   }
-  if (data === 'menu:list') return showList(config, chatId, env);
+  if (data === 'menu:list') return showList(config, chatId, env, messageId);
   if (data === 'menu:query') {
     await setSession(env, chatId, { action: 'query', step: 'keyword', data: {} });
-    return sendMessage(config, chatId, '🔎 请输入要查询的订阅名称或关键词：', [
+    return editMessage(config, chatId, messageId, '🔎 请输入要查询的订阅名称或关键词：', [
       [{ text: '❌ 取消', callback_data: 'cancel' }]
     ]);
   }
-  if (data === 'menu:add') return beginAdd(config, chatId, env);
+  if (data === 'menu:add') return beginAdd(config, chatId, env, messageId);
   if (data === 'menu:renew') {
     const subs = await getAllSubscriptions(env);
-    return sendMessage(config, chatId, '🔄 请选择要续订的订阅：', subButtons(subs.filter((s) => s.isActive), 'renew'));
+    return editMessage(config, chatId, messageId, '🔄 请选择要续订的订阅：', subButtons(subs.filter((s) => s.isActive), 'renew'));
   }
-  if (data === 'menu:expiring') return showExpiring(config, chatId, env);
-  if (data === 'menu:stats') return showStats(config, chatId, env);
-  if (data === 'menu:payments') return showPayments(config, chatId, env);
-  if (data === 'menu:help') return sendMessage(config, chatId, helpText(), mainMenu());
+  if (data === 'menu:expiring') return showExpiring(config, chatId, env, messageId);
+  if (data === 'menu:stats') return showStats(config, chatId, env, messageId);
+  if (data === 'menu:payments') return showPayments(config, chatId, env, messageId);
+  if (data === 'menu:help') return editMessage(config, chatId, messageId, helpText(), mainMenu());
 
   if (data.startsWith('addcycle:')) {
     const [, unit, value] = data.split(':');
-    return completeAdd(config, chatId, env, unit, Number(value));
+    return completeAdd(config, chatId, env, unit, Number(value), messageId);
   }
-
-  if (data.startsWith('view:')) {
-    return showSubscription(config, chatId, env, data.slice(5));
-  }
-  if (data.startsWith('payments:')) {
-    return showPaymentHistory(config, chatId, env, data.slice(9));
-  }
-  if (data.startsWith('renew:')) {
-    return beginRenew(config, chatId, env, data.slice(6));
-  }
+  if (data.startsWith('view:')) return showSubscription(config, chatId, env, data.slice(5), messageId);
+  if (data.startsWith('payments:')) return showPaymentHistory(config, chatId, env, data.slice(9), messageId);
+  if (data.startsWith('renew:')) return beginRenew(config, chatId, env, data.slice(6), messageId);
   if (data.startsWith('renewconfirm:')) {
     const [, id, multiplier] = data.split(':');
-    return completeRenew(config, chatId, env, id, Number(multiplier));
+    return completeRenew(config, chatId, env, id, Number(multiplier), messageId);
   }
-  if (data.startsWith('toggle:')) {
-    return toggleSubscriptionFromTelegram(config, chatId, env, data.slice(7));
-  }
+  if (data.startsWith('toggle:')) return toggleSubscriptionFromTelegram(config, chatId, env, data.slice(7), messageId);
   if (data.startsWith('deleteask:')) {
     const id = data.slice(10);
     const sub = await getSubscription(id, env);
-    if (!sub) return sendMessage(config, chatId, '❌ 订阅不存在。', mainMenu());
-    return sendMessage(config, chatId, `⚠️ 确定删除「${sub.name}」吗？\n\n删除后订阅及其支付记录会一起移除。`, [
+    if (!sub) return editMessage(config, chatId, messageId, '❌ 订阅不存在。', mainMenu());
+    return editMessage(config, chatId, messageId, `⚠️ 确定删除「${sub.name}」吗？\n\n删除后订阅及其支付记录会一起移除。`, [
       [
         { text: '🗑️ 确认删除', callback_data: `delete:${id}` },
         { text: '❌ 取消', callback_data: `view:${id}` }
       ]
     ]);
   }
-  if (data.startsWith('delete:')) {
-    return deleteSubscriptionFromTelegram(config, chatId, env, data.slice(7));
-  }
+  if (data.startsWith('delete:')) return deleteSubscriptionFromTelegram(config, chatId, env, data.slice(7), messageId);
 }
 
 export {
