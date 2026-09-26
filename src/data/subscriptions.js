@@ -161,7 +161,7 @@ async function createSubscription(subscription, env) {
     }
 
     let useLunar = !!subscription.useLunar;
-    if (useLunar) {
+    if (useLunar && !subscription.preserveExplicitDates) {
       const expiryParts = getTimezoneDateParts(expiryDate, timezone);
       let lunar = lunarCalendar.solar2lunar(
         expiryParts.year,
@@ -176,7 +176,7 @@ async function createSubscription(subscription, env) {
           expiryDate = buildTimezoneDate(solar.year, solar.month, solar.day, timezone);
         }
       }
-    } else {
+    } else if (!useLunar && !subscription.preserveExplicitDates) {
       if (getTimezoneMidnightTimestamp(expiryDate, timezone) < todayMidnight && subscription.periodValue && subscription.periodUnit) {
         while (getTimezoneMidnightTimestamp(expiryDate, timezone) < todayMidnight) {
           const endOfMonth = !!subscription.endOfMonth && !useLunar;

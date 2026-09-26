@@ -22,7 +22,7 @@ import {
 } from '../data/subscriptions.js';
 import { getConfig, setConfig } from '../data/config.js';
 import { formatAmount } from '../core/currency-format.js';
-import { formatTimeInTimezone, getTimezoneDateParts, parseDateInputInTimezone } from '../core/time.js';
+import { addCalendarPeriodInTimezone, formatTimeInTimezone, getTimezoneDateParts, parseDateInputInTimezone } from '../core/time.js';
 
 const SESSION_TTL = 15 * 60;
 
@@ -402,13 +402,13 @@ async function handleAddMessage(config, chatId, env, session, text) {
       return;
     }
     session.data.name = text;
-    session.step = 'expiry';
+    session.step = 'startDate';
     await setSession(env, chatId, session);
-    await sendMessage(config, chatId, '请输入到期日期，格式：YYYY-MM-DD\n例如：2026-12-31');
+    await sendMessage(config, chatId, '请输入开始日期，格式：YYYY-MM-DD\n例如：2026-09-28');
     return;
   }
 
-  if (session.step === 'expiry') {
+  if (session.step === 'startDate') {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
       await sendMessage(config, chatId, '日期格式不正确，请使用 YYYY-MM-DD。');
       return;
@@ -418,7 +418,7 @@ async function handleAddMessage(config, chatId, env, session, text) {
       await sendMessage(config, chatId, '日期无效，请重新输入。');
       return;
     }
-    session.data.expiryDate = text;
+    session.data.startDate = text;
     session.step = 'amount';
     await setSession(env, chatId, session);
     await sendMessage(config, chatId, '请输入每个周期的金额。\n例如：20 或 20 USD。\n如果不记录金额，请输入 0。');
@@ -440,7 +440,7 @@ async function handleAddMessage(config, chatId, env, session, text) {
     session.data.currency = (match[2] || 'CNY').toUpperCase();
     session.step = 'cycle';
     await setSession(env, chatId, session);
-    await sendMessage(config, chatId, '请选择续订周期：', [
+    await sendMessage(config, chatId, '请选择订阅周期：', [
       [
         { text: '1个月', callback_data: 'addcycle:month:1' },
         { text: '3个月', callback_data: 'addcycle:month:3' }
@@ -452,59 +452,125 @@ async function handleAddMessage(config, chatId, env, session, text) {
       [{ text: '🗓️ 自定义天数', callback_data: 'addcustom' }],
       [{ text: '❌ 取消', callback_data: 'cancel' }]
     ]);
-  }
-}
-
-async function beginCustomAdd(config, chatId, env, messageId = null) {
-  const session = await getSession(env, chatId);
-  if (!session || session.action !== 'add' || session.step !== 'cycle') {
-    await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
     return;
   }
 
-  session.step = 'customDays';
-  session.data.promptMessageId = messageId;
-  await setSession(env, chatId, session);
+  if (session.step === 'customCycle') {
+    const raw = text.trim();
+    if (!/^\d+$/.test(raw)) {
+      await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
+      return;
+    }
+    const days = Number(raw);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
+      return;
+    }
+    session.data.periodValue = days;
+    session.data.periodUnit = 'day';
+    session.step = 'mode';
+    await setSession(env, chatId, session);
+    await sendMessage(config, chatId, '请选择订阅方式：', [
+      [{ text: '📅 循环订阅', callback_data: 'addmode:cycle' }],
+      [{ text: '⏳ 到期重置', callback_data: 'addmode:reset' }],
+      [{ text: '❌ 取消', callback_data: 'cancel' }]
+    ]);
+  }
+}
 
-  await editMessage(config, chatId, messageId, '🗓️ 自定义订阅周期\n\n请输入周期天数，例如：15、45、100\n请输入 1～3650 之间的正整数。', [
+async function selectAddCycle(config, chatId, env, unit, value, messageId = null) {
+  const session = await getSession(env, chatId);
+  if (!session || session.action !== 'add') {
+    await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
+    return;
+  }
+  session.data.periodValue = Number(value);
+  session.data.periodUnit = unit;
+  session.step = 'mode';
+  await setSession(env, chatId, session);
+  await editMessage(config, chatId, messageId, '请选择订阅方式：', [
+    [{ text: '📅 循环订阅', callback_data: 'addmode:cycle' }],
+    [{ text: '⏳ 到期重置', callback_data: 'addmode:reset' }],
     [{ text: '❌ 取消', callback_data: 'cancel' }]
   ]);
 }
 
-async function completeCustomAdd(config, chatId, env, days, messageId = null) {
+async function selectAddMode(config, chatId, env, mode, messageId = null) {
   const session = await getSession(env, chatId);
-  if (!session || session.action !== 'add' || session.step !== 'customDays') {
+  if (!session || session.action !== 'add') {
     await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
     return;
   }
-
-  const n = Number(days);
-  if (!Number.isInteger(n) || n < 1 || n > 3650) {
-    await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
-    return;
-  }
-
-  await completeAdd(config, chatId, env, 'day', n, messageId);
+  session.data.subscriptionMode = mode;
+  session.step = 'expiryMode';
+  await setSession(env, chatId, session);
+  await editMessage(config, chatId, messageId, '请选择到期日期设置方式：', [
+    [{ text: '🤖 自动计算到期日期', callback_data: 'addexpiry:auto' }],
+    [{ text: '✏️ 手动输入到期日期', callback_data: 'addexpiry:manual' }],
+    [{ text: '❌ 取消', callback_data: 'cancel' }]
+  ]);
 }
 
-async function completeAdd(config, chatId, env, unit, value, messageId = null) {
+async function selectAddExpiryMode(config, chatId, env, mode, messageId = null) {
   const session = await getSession(env, chatId);
   if (!session || session.action !== 'add') {
     await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
     return;
   }
 
+  if (mode === 'manual') {
+    session.step = 'expiryManual';
+    await setSession(env, chatId, session);
+    await editMessage(config, chatId, messageId, '✏️ 请输入到期日期，格式：YYYY-MM-DD\n例如：2026-12-31', [
+      [{ text: '❌ 取消', callback_data: 'cancel' }]
+    ]);
+    return;
+  }
+
+  return completeAdd(config, chatId, env, messageId);
+}
+
+async function completeAdd(config, chatId, env, messageId = null) {
+  const session = await getSession(env, chatId);
+  if (!session || session.action !== 'add') {
+    await editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
+    return;
+  }
+
+  const timezone = config.TIMEZONE || 'Asia/Shanghai';
+  const startDate = parseDateInputInTimezone(session.data.startDate, timezone);
+  if (Number.isNaN(startDate.getTime())) {
+    await editMessage(config, chatId, messageId, '❌ 开始日期无效。', mainMenu());
+    return;
+  }
+
+  let expiryDate = session.data.expiryDate;
+  if (!expiryDate) {
+    const calculated = addCalendarPeriodInTimezone(
+      startDate,
+      Number(session.data.periodValue),
+      session.data.periodUnit,
+      timezone,
+      { endOfMonth: false }
+    );
+    expiryDate = localDateString(calculated, timezone);
+  }
+
   const amount = Number(session.data.amount);
   const result = await createSubscription({
     name: session.data.name,
-    expiryDate: session.data.expiryDate,
+    startDate: session.data.startDate,
+    expiryDate,
     amount,
     currency: session.data.currency || 'CNY',
-    periodValue: value,
-    periodUnit: unit,
-    subscriptionMode: 'cycle',
+    periodValue: Number(session.data.periodValue),
+    periodUnit: session.data.periodUnit,
+    subscriptionMode: session.data.subscriptionMode || 'cycle',
     isActive: true,
-    autoRenew: true
+    autoRenew: true,
+    // Telegram 添加订阅时，用户明确给出的开始/到期日期必须原样保存，
+    // 不要因为该日期早于今天而自动滚动到当前日期。
+    preserveExplicitDates: true
   }, env);
 
   await clearSession(env, chatId);
@@ -764,17 +830,22 @@ async function handleTelegramWebhook(request, env) {
     }
 
     const session = await getSession(env, chatId);
-    if (session?.action === 'add' && session.step === 'customDays') {
-      const raw = text.trim();
-      if (!/^\d+$/.test(raw)) {
-        await sendMessage(config, chatId, '天数必须是 1～3650 之间的正整数，请重新输入。');
+    if (session?.action === 'add') {
+      if (session.step === 'expiryManual') {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+          await sendMessage(config, chatId, '日期格式不正确，请使用 YYYY-MM-DD。');
+          return new Response('OK');
+        }
+        const date = parseDateInputInTimezone(text, config.TIMEZONE || 'Asia/Shanghai');
+        if (Number.isNaN(date.getTime())) {
+          await sendMessage(config, chatId, '日期无效，请重新输入。');
+          return new Response('OK');
+        }
+        session.data.expiryDate = text;
+        await setSession(env, chatId, session);
+        await completeAdd(config, chatId, env, null);
         return new Response('OK');
       }
-      await completeCustomAdd(config, chatId, env, Number(raw), session.data.promptMessageId || null);
-      return new Response('OK');
-    }
-
-    if (session?.action === 'add') {
       await handleAddMessage(config, chatId, env, session, text);
       return new Response('OK');
     }
@@ -851,11 +922,25 @@ async function handleCallback(config, chatId, env, data, messageId = null) {
   if (data === 'menu:help') return editMessage(config, chatId, messageId, helpText(), mainMenu());
 
   if (data === 'addcustom') {
-    return beginCustomAdd(config, chatId, env, messageId);
+    const session = await getSession(env, chatId);
+    if (!session || session.action !== 'add') {
+      return editMessage(config, chatId, messageId, '添加操作已过期，请重新点击「添加订阅」。', mainMenu());
+    }
+    session.step = 'customCycle';
+    await setSession(env, chatId, session);
+    return editMessage(config, chatId, messageId, '🗓️ 自定义订阅周期\n\n请输入周期天数，例如：5、30、365\n请输入 1～3650 之间的正整数。', [
+      [{ text: '❌ 取消', callback_data: 'cancel' }]
+    ]);
   }
   if (data.startsWith('addcycle:')) {
     const [, unit, value] = data.split(':');
-    return completeAdd(config, chatId, env, unit, Number(value), messageId);
+    return selectAddCycle(config, chatId, env, unit, Number(value), messageId);
+  }
+  if (data.startsWith('addmode:')) {
+    return selectAddMode(config, chatId, env, data.slice(8), messageId);
+  }
+  if (data.startsWith('addexpiry:')) {
+    return selectAddExpiryMode(config, chatId, env, data.slice(10), messageId);
   }
   if (data.startsWith('view:')) return showSubscription(config, chatId, env, data.slice(5), messageId);
   if (data.startsWith('payments:')) return showPaymentHistory(config, chatId, env, data.slice(9), messageId);
