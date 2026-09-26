@@ -469,24 +469,28 @@ async function manualRenewSubscription(id, env, options = {}) {
     const note = options.note || '手动续订';
     const mode = subscription.subscriptionMode || 'cycle';
 
-    let newStartDate;
+    // 续订的“计算起点”和订阅本身的“开始日期”是两个不同概念：
+    // - cycle：到期日用于计算新的到期日，但不能把它写回 subscription.startDate
+    // - reset：支付日用于计算新的到期日，同样不应覆盖原始 subscription.startDate
+    // 订阅开始日期代表这条订阅最初的开始日期，续订只延长到期日。
+    const originalStartDate = new Date(subscription.startDate);
     const currentExpiryDate = new Date(subscription.expiryDate);
+    let renewalBaseDate;
 
     if (mode === 'reset') {
-      // 到期重置：从本次支付日期重新起算。
-      newStartDate = new Date(paymentDate);
+      // 到期重置：从本次支付日期重新计算新的到期日。
+      renewalBaseDate = new Date(paymentDate);
     } else {
       // 循环订阅：始终从原来的到期日继续累加周期。
-      // 即使订阅已经过期，也不能把起点改成当前日期，否则会把历史到期日
-      // 直接跳到今天，导致续订后的日期整体向后偏移。
-      newStartDate = Number.isNaN(currentExpiryDate.getTime())
+      // 即使订阅已经过期，也不能把起点改成当前日期。
+      renewalBaseDate = Number.isNaN(currentExpiryDate.getTime())
         ? new Date(paymentDate)
         : new Date(currentExpiryDate);
     }
 
     let newExpiryDate;
     if (subscription.useLunar) {
-      const solarStart = getTimezoneDateParts(newStartDate, timezone);
+      const solarStart = getTimezoneDateParts(renewalBaseDate, timezone);
       let lunar = lunarCalendar.solar2lunar(solarStart.year, solarStart.month, solarStart.day);
       let nextLunar = lunar;
       for (let i = 0; i < periodMultiplier; i++) {
@@ -497,7 +501,7 @@ async function manualRenewSubscription(id, env, options = {}) {
     } else {
       const totalPeriodValue = renewalPeriodValue * periodMultiplier;
       newExpiryDate = addCalendarPeriodInTimezone(
-        newStartDate,
+        renewalBaseDate,
         totalPeriodValue,
         renewalPeriodUnit,
         timezone,
@@ -512,7 +516,7 @@ async function manualRenewSubscription(id, env, options = {}) {
       currency: subscription.currency || 'CNY',
       type: 'manual',
       note,
-      periodStart: newStartDate.toISOString(),
+      periodStart: renewalBaseDate.toISOString(),
       periodEnd: newExpiryDate.toISOString()
     };
 
@@ -522,7 +526,10 @@ async function manualRenewSubscription(id, env, options = {}) {
 
     const updated = {
       ...subscription,
-      startDate: newStartDate.toISOString(),
+      // 续订不修改原始开始日期；仅更新到期日和支付日期。
+      startDate: Number.isNaN(originalStartDate.getTime())
+        ? subscription.startDate
+        : originalStartDate.toISOString(),
       expiryDate: newExpiryDate.toISOString(),
       lastPaymentDate: paymentDate.toISOString(),
       paymentHistory: trimmedPaymentHistory
