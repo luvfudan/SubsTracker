@@ -25,7 +25,7 @@ function resolveTopicId(config) {
  * @param {string} text
  * @param {string} [parseMode]
  */
-function buildSendBody(config, text, parseMode) {
+function buildSendBody(config, text, parseMode, metadata) {
   /** @type {Record<string, any>} */
   const body = {
     chat_id: config.TG_CHAT_ID,
@@ -34,6 +34,19 @@ function buildSendBody(config, text, parseMode) {
   if (parseMode) body.parse_mode = parseMode;
   const topicId = resolveTopicId(config);
   if (topicId !== undefined) body.message_thread_id = topicId;
+
+  const quickRenewIds = Array.isArray(metadata?.quickRenewIds)
+    ? metadata.quickRenewIds
+    : [];
+  if (quickRenewIds.length) {
+    body.reply_markup = {
+      inline_keyboard: quickRenewIds.slice(0, 30).map((item) => [{
+        text: `🔄 快捷续订${item.name ? ` · ${String(item.name).slice(0, 28)}` : ''}`,
+        callback_data: `renew:${item.id}`
+      }])
+    };
+  }
+
   return body;
 }
 
@@ -60,7 +73,7 @@ export const telegramChannel = {
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSendBody(config, escaped, 'MarkdownV2'))
+        body: JSON.stringify(buildSendBody(config, escaped, 'MarkdownV2', payload.metadata))
       });
       const result = await r.json();
 
@@ -71,7 +84,7 @@ export const telegramChannel = {
         const r2 = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildSendBody(config, fullText))
+          body: JSON.stringify(buildSendBody(config, fullText, undefined, payload.metadata))
         });
         const result2 = await r2.json();
         return result2.ok

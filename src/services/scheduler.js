@@ -275,7 +275,11 @@ export async function checkExpiringSubscriptions(env) {
           tags: enrichedSubs.map((s) => s.name),
           daysRemaining: primary.daysDiff,
           ruleType: primary.rule.type,
-          ruleValue: primary.rule.value
+          ruleValue: primary.rule.value,
+          quickRenewIds: enrichedSubs.map((s) => ({
+            id: s.id,
+            name: s.name
+          }))
         }
       }
     );
