@@ -23,7 +23,7 @@ function resolveTopicId(config) {
 /**
  * @param {any} config
  * @param {string} text
- * @param {string|undefined} parseMode
+ * @param {string} [parseMode]
  */
 function buildSendBody(config, text, parseMode) {
   /** @type {Record<string, any>} */
@@ -71,7 +71,7 @@ export const telegramChannel = {
         const r2 = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildSendBody(config, fullText))
+          body: JSON.stringify(buildSendBody(config, fullText, undefined))
         });
         const result2 = await r2.json();
         return result2.ok
