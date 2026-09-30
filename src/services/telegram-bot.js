@@ -945,6 +945,10 @@ async function handleCallback(config, chatId, env, data, messageId = null) {
   if (data.startsWith('view:')) return showSubscription(config, chatId, env, data.slice(5), messageId);
   if (data.startsWith('payments:')) return showPaymentHistory(config, chatId, env, data.slice(9), messageId);
   if (data.startsWith('renew:')) return beginRenew(config, chatId, env, data.slice(6), messageId);
+  if (data.startsWith('quickrenew:')) {
+    const [, id, multiplier] = data.split(':');
+    return completeRenew(config, chatId, env, id, Number(multiplier), messageId);
+  }
   if (data.startsWith('renewconfirm:')) {
     const [, id, multiplier] = data.split(':');
     return completeRenew(config, chatId, env, id, Number(multiplier), messageId);

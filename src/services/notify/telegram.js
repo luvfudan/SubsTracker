@@ -25,7 +25,7 @@ function resolveTopicId(config) {
  * @param {string} text
  * @param {string} [parseMode]
  */
-function buildSendBody(config, text, parseMode) {
+function buildSendBody(config, text, parseMode, metadata = {}) {
   /** @type {Record<string, any>} */
   const body = {
     chat_id: config.TG_CHAT_ID,
@@ -34,6 +34,25 @@ function buildSendBody(config, text, parseMode) {
   if (parseMode) body.parse_mode = parseMode;
   const topicId = resolveTopicId(config);
   if (topicId !== undefined) body.message_thread_id = topicId;
+
+  const quickRenewIds = Array.isArray(metadata?.quickRenewIds)
+    ? metadata.quickRenewIds.filter((item) => item && item.id).slice(0, 20)
+    : [];
+
+  if (quickRenewIds.length > 0) {
+    body.reply_markup = {
+      inline_keyboard: quickRenewIds.flatMap((item) => {
+        const name = String(item.name || '订阅').slice(0, 24);
+        return [[
+          { text: `🔄 ${name} · 1周期`, callback_data: `quickrenew:${item.id}:1` },
+          { text: `3周期`, callback_data: `quickrenew:${item.id}:3` },
+          { text: `6周期`, callback_data: `quickrenew:${item.id}:6` },
+          { text: `12周期`, callback_data: `quickrenew:${item.id}:12` }
+        ]];
+      })
+    };
+  }
+
   return body;
 }
 
@@ -60,7 +79,7 @@ export const telegramChannel = {
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildSendBody(config, escaped, 'MarkdownV2'))
+        body: JSON.stringify(buildSendBody(config, escaped, 'MarkdownV2', payload.metadata || {}))
       });
       const result = await r.json();
 
@@ -71,7 +90,7 @@ export const telegramChannel = {
         const r2 = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildSendBody(config, fullText, undefined))
+          body: JSON.stringify(buildSendBody(config, fullText, undefined, payload.metadata || {}))
         });
         const result2 = await r2.json();
         return result2.ok

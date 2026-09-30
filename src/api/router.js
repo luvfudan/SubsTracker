@@ -1,7 +1,7 @@
 import { handleLogin, handleLogout, getUserFromRequest } from './handlers/auth.js';
 import { handleGetConfig, handleUpdateConfig } from './handlers/config.js';
 import { handleDashboardStats } from './handlers/dashboard.js';
-import { handleThirdPartyNotify } from './handlers/notify.js';
+import { handleThirdPartyNotify, handleTestExpiringTelegram } from './handlers/notify.js';
 import { handleSubscriptions } from './handlers/subscriptions.js';
 import { getConfig } from '../data/config.js';
 import { handleTestNotification } from './handlers/test-notification.js';
@@ -52,6 +52,11 @@ async function handleApiRequest(request, env) {
 
   if (path === '/test-notification' && method === 'POST') {
     return handleTestNotification(request, env);
+  }
+
+  // 管理员手动测试：把当前未来 30 天内到期的订阅按正式提醒格式推送到 Telegram
+  if (path === '/test-expiring-telegram' && method === 'POST') {
+    return handleTestExpiringTelegram(request, env);
   }
 
   // 备份 / 恢复

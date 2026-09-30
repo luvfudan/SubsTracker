@@ -479,6 +479,9 @@
           <input type="checkbox" id="listShowLunar" class="form-checkbox h-4 w-4 text-indigo-600 shrink-0">
           <span class="text-gray-700">显示农历</span>
         </label>
+        <button id="testExpiringTelegramBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shrink-0" title="将当前未来30天内到期的订阅按正式提醒格式推送到 Telegram">
+          <i class="fas fa-paper-plane mr-2"></i>测试即将到期推送
+        </button>
         <button id="addSubscriptionBtn" class="btn-primary text-white px-4 py-2 rounded-md text-sm font-medium flex items-center shrink-0">
           <i class="fas fa-plus mr-2"></i>添加新订阅
         </button>
@@ -1933,6 +1936,38 @@ const lunarBiz = {
       }
     }
     
+
+    async function testExpiringTelegramPush() {
+      const button = document.getElementById('testExpiringTelegramBtn');
+      if (!button) return;
+
+      const originalContent = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>发送中...';
+
+      try {
+        const response = await apiFetch('/api/test-expiring-telegram', { method: 'POST' });
+        let result = null;
+        try {
+          result = await response.json();
+        } catch (_) {
+          result = { success: false, message: '服务返回了无法解析的响应' };
+        }
+
+        if (response.ok && result.success) {
+          showToast(result.message || '即将到期推送测试已发送', 'success', 5000);
+        } else {
+          showToast(result.message || ('HTTP ' + response.status), 'error', 5000);
+        }
+      } catch (error) {
+        console.error('测试即将到期推送失败:', error);
+        showToast('发送测试推送时发生网络错误，请稍后重试', 'error', 5000);
+      } finally {
+        button.innerHTML = originalContent;
+        button.disabled = false;
+      }
+    }
+
     async function testSubscriptionNotification(e) {
         const button = e.target.closest('button');
         if (!button) {
@@ -2577,6 +2612,11 @@ const lunarBiz = {
       }
     }
     
+    const testExpiringTelegramBtn = document.getElementById('testExpiringTelegramBtn');
+    if (testExpiringTelegramBtn) {
+      testExpiringTelegramBtn.addEventListener('click', testExpiringTelegramPush);
+    }
+
     document.getElementById('addSubscriptionBtn').addEventListener('click', () => {
       document.getElementById('modalTitle').textContent = '添加新订阅';
       document.getElementById('subscriptionModal').classList.remove('hidden');
