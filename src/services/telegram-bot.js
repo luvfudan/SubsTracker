@@ -641,8 +641,8 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     return;
   }
 
-  // 续订成功后不要把原通知里的其他快捷续订按钮一起替换掉。
-  // 重新读取当前即将到期订阅，并重建快捷按钮，让同一条消息继续可操作。
+  // 续订成功后，保留同一条消息中的其他快捷续订项。
+  // 已续订项目只显示简短结果；其他待续订项目继续按“到期提醒”的详细格式展示。
   const timezone = config.TIMEZONE || 'Asia/Shanghai';
   const subscriptions = await getAllSubscriptions(env);
   const expiring = subscriptions
@@ -654,9 +654,6 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
     .slice(0, 20);
 
-  // 已续订的这一项从“待处理列表”中隐藏，避免续订后仍显示成待续订项目。
-  // 同时把其他即将到期订阅的名称、到期日、剩余天数直接写进消息正文，
-  // 防止只看按钮时不知道每个按钮对应哪一个订阅。
   const remaining = expiring.filter((s) => String(s.id) !== String(id));
 
   const remainingKeyboard = remaining.map((s) => [{
@@ -673,33 +670,60 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     callback_data: `quickrenew:${s.id}:12`
   }]);
 
-  const remainingLines = remaining.map((s) => {
+  // 与正式到期提醒保持一致的核心信息：状态、类型、分类、金额、日历、到期日期、
+  // 自动续期、提醒策略、到期状态、备注。这里使用纯文本，避免 Telegram Bot 交互消息的 Markdown 解析问题。
+  const remainingDetails = remaining.map((s) => {
     const days = daysRemaining(s.expiryDate, timezone);
     const expiry = formatTimeInTimezone(new Date(s.expiryDate), timezone, 'date');
-    const dayText = days === 0 ? '今天到期' : `剩余 ${days} 天`;
-    return `• ${s.name} · ${expiry} · ${dayText}`;
+    const typeText = s.customType || '其他';
+    const periodText = (s.periodValue && s.periodUnit)
+      ? `（周期: ${s.periodValue} ${unitText(s.periodUnit)}）`
+      : '';
+    const categoryText = s.category || '未分类';
+    const amount = formatAmount(s.amount, s.currency || 'CNY');
+    const amountText = amount ? `\n金额: ${amount}/周期` : '';
+    const calendarType = s.useLunar ? '农历' : '公历';
+    const autoRenewText = s.autoRenew ? '是' : '否';
+    const reminderUnit = s.reminderUnit === 'hour' ? '小时' : '天';
+    const reminderValue = s.reminderValue ?? s.reminderDays ?? 7;
+    const reminderText = `提前 ${reminderValue} ${reminderUnit}提醒`;
+    let status = '📅';
+    let statusText = `将在 ${days} 天后到期`;
+    if (days === 0) {
+      status = '⚠️';
+      statusText = '今天到期！';
+    }
+
+    return [
+      `${status} ${s.name}`,
+      `类型: ${typeText} ${periodText}`,
+      `分类: ${categoryText}${amountText}`,
+      `日历类型: ${calendarType}`,
+      `到期日期: ${expiry}`,
+      `自动续期: ${autoRenewText}`,
+      `提醒策略: ${reminderText}`,
+      `到期状态: ${statusText}`,
+      s.notes ? `备注: ${s.notes}` : ''
+    ].filter(Boolean).join('\n');
   });
 
-  const keyboard = [
-    [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }]
-  ];
+  const keyboard = [];
   if (remainingKeyboard.length) keyboard.push(...remainingKeyboard);
   keyboard.push([{ text: '🔔 查看全部即将到期', callback_data: 'menu:expiring' }]);
   keyboard.push([{ text: '🏠 主菜单', callback_data: 'menu:home' }]);
 
-  const suffix = remaining.length
-    ? `\n\n🔔 其他即将到期订阅（${remaining.length} 个）\n${remainingLines.join('\n')}\n\n点击对应按钮即可续订：`
-    : '\n\n🎉 当前没有其他未来 30 天内到期的订阅。';
+  const renewedExpiry = formatTimeInTimezone(new Date(result.subscription.expiryDate), timezone, 'date');
+  const renewedCycle = `${n} 周期`;
+  const successText = [
+    `✅ ${result.subscription.name} 已续订 ${renewedCycle}`,
+    `📅 新到期日期：${renewedExpiry}`,
+    remaining.length
+      ? `\n🔔 另外还有 ${remaining.length} 个订阅需要关注：\n\n${remainingDetails.join('\n\n')}`
+      : '\n🎉 当前没有其他未来 30 天内到期的订阅。'
+  ].join('\n');
 
-  await editMessage(
-    config,
-    chatId,
-    messageId,
-    `✅ 续订成功\n\n${subscriptionText(result.subscription, config)}${suffix}`,
-    keyboard
-  );
+  await editMessage(config, chatId, messageId, successText, keyboard);
 }
-
 async function deleteSubscriptionFromTelegram(config, chatId, env, id, messageId = null) {
   const sub = await getSubscription(id, env);
   if (!sub) {
