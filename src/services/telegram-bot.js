@@ -654,8 +654,13 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
     .slice(0, 20);
 
-  const remainingKeyboard = expiring.map((s) => [{
-    text: `🔄 ${truncate(s.name, 24)}`,
+  // 已续订的这一项从“待处理列表”中隐藏，避免续订后仍显示成待续订项目。
+  // 同时把其他即将到期订阅的名称、到期日、剩余天数直接写进消息正文，
+  // 防止只看按钮时不知道每个按钮对应哪一个订阅。
+  const remaining = expiring.filter((s) => String(s.id) !== String(id));
+
+  const remainingKeyboard = remaining.map((s) => [{
+    text: `🔄 ${truncate(s.name, 22)} · 1周期`,
     callback_data: `quickrenew:${s.id}:1`
   }, {
     text: '3周期',
@@ -668,14 +673,22 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     callback_data: `quickrenew:${s.id}:12`
   }]);
 
+  const remainingLines = remaining.map((s) => {
+    const days = daysRemaining(s.expiryDate, timezone);
+    const expiry = formatTimeInTimezone(new Date(s.expiryDate), timezone, 'date');
+    const dayText = days === 0 ? '今天到期' : `剩余 ${days} 天`;
+    return `• ${s.name} · ${expiry} · ${dayText}`;
+  });
+
   const keyboard = [
     [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }]
   ];
   if (remainingKeyboard.length) keyboard.push(...remainingKeyboard);
+  keyboard.push([{ text: '🔔 查看全部即将到期', callback_data: 'menu:expiring' }]);
   keyboard.push([{ text: '🏠 主菜单', callback_data: 'menu:home' }]);
 
-  const suffix = remainingKeyboard.length
-    ? `\n\n🔔 其他即将到期订阅仍可直接续订（共 ${remainingKeyboard.length} 个）：`
+  const suffix = remaining.length
+    ? `\n\n🔔 其他即将到期订阅（${remaining.length} 个）\n${remainingLines.join('\n')}\n\n点击对应按钮即可续订：`
     : '\n\n🎉 当前没有其他未来 30 天内到期的订阅。';
 
   await editMessage(
