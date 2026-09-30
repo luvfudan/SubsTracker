@@ -641,10 +641,50 @@ async function completeRenew(config, chatId, env, id, multiplier, messageId = nu
     return;
   }
 
-  await editMessage(config, chatId, messageId, `✅ 续订成功\n\n${subscriptionText(result.subscription, config)}`, [
-    [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }],
-    [{ text: '🏠 主菜单', callback_data: 'menu:home' }]
-  ]);
+  // 续订成功后不要把原通知里的其他快捷续订按钮一起替换掉。
+  // 重新读取当前即将到期订阅，并重建快捷按钮，让同一条消息继续可操作。
+  const timezone = config.TIMEZONE || 'Asia/Shanghai';
+  const subscriptions = await getAllSubscriptions(env);
+  const expiring = subscriptions
+    .filter((s) => s.isActive)
+    .filter((s) => {
+      const days = daysRemaining(s.expiryDate, timezone);
+      return days >= 0 && days <= 30;
+    })
+    .sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+    .slice(0, 20);
+
+  const remainingKeyboard = expiring.map((s) => [{
+    text: `🔄 ${truncate(s.name, 24)}`,
+    callback_data: `quickrenew:${s.id}:1`
+  }, {
+    text: '3周期',
+    callback_data: `quickrenew:${s.id}:3`
+  }, {
+    text: '6周期',
+    callback_data: `quickrenew:${s.id}:6`
+  }, {
+    text: '12周期',
+    callback_data: `quickrenew:${s.id}:12`
+  }]);
+
+  const keyboard = [
+    [{ text: '📜 查看支付记录', callback_data: `payments:${id}` }]
+  ];
+  if (remainingKeyboard.length) keyboard.push(...remainingKeyboard);
+  keyboard.push([{ text: '🏠 主菜单', callback_data: 'menu:home' }]);
+
+  const suffix = remainingKeyboard.length
+    ? `\n\n🔔 其他即将到期订阅仍可直接续订（共 ${remainingKeyboard.length} 个）：`
+    : '\n\n🎉 当前没有其他未来 30 天内到期的订阅。';
+
+  await editMessage(
+    config,
+    chatId,
+    messageId,
+    `✅ 续订成功\n\n${subscriptionText(result.subscription, config)}${suffix}`,
+    keyboard
+  );
 }
 
 async function deleteSubscriptionFromTelegram(config, chatId, env, id, messageId = null) {
