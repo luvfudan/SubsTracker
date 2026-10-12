@@ -21,6 +21,7 @@ import { handleAdminRequest, handleLoginPage } from './api/admin.js';
 import { handleDebug } from './api/debug.js';
 import { getUserFromRequest } from './api/handlers/auth.js';
 import { ensureMigrations } from './data/migrate.js';
+import { handleTelegramWebhook } from './services/telegram-bot.js';
 
 /**
  * @typedef {{ SUBSCRIPTIONS_KV: KVNamespace }} Bindings
@@ -84,6 +85,11 @@ app.all('/debug', async (c) => {
 // ─────────────────────────────────────────────────────────────
 // 路由：/api/*（认证由 handler 内部处理，与既有客户端约定一致）
 // ─────────────────────────────────────────────────────────────
+// Telegram Webhook 必须公开给 Telegram，认证在 handler 内通过 secret_token + Chat ID 完成。
+app.all('/telegram/webhook', async (c) => {
+  return handleTelegramWebhook(c.req.raw, c.env);
+});
+
 app.all('/api/*', async (c) => {
   return handleApiRequest(c.req.raw, c.env);
 });
